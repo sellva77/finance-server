@@ -146,9 +146,10 @@ if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.join(__dirname, 'public')));
 
     // Handle React routing, return all requests to React app
-    app.get('*', (req, res) => {
-        res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    app.get("/", (req, res) => {
+      res.send("Finance API running");
     });
+
 } else {
     // 404 handler for development
     app.use('*', (req, res) => {
@@ -166,8 +167,8 @@ const PORT = process.env.PORT || 5000;
 
 const server = app.listen(PORT, () => {
     console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-    console.log(`📊 API Info: http://localhost:${PORT}/api/info`);
-    console.log(`❤️ Health Check: http://localhost:${PORT}/api/health`);
+    console.log(`📊 API Info: https://finance-server-a3nm.onrender.com/api/info`);
+    console.log(`❤️ Health Check: https://finance-server-a3nm.onrender.com/api/health`);
 });
 
 // Handle unhandled promise rejections
