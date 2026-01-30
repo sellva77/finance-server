@@ -1,5 +1,6 @@
 const Investment = require('../models/Investment');
 const Account = require('../models/Account');
+const Transaction = require('../models/Transaction'); // Added Transaction model
 const mongoose = require('mongoose');
 
 // Helper to validate ObjectId
@@ -106,6 +107,38 @@ exports.createInvestment = async (req, res, next) => {
             value: req.body.currentValue || req.body.investedAmount || 0,
             units: req.body.units || 0
         }];
+
+        // UNIFIED ACCOUNT BALANCE UPDATE
+        // If an account is selected, deduct the invested amount from it
+        if (req.body.accountId && req.body.investedAmount > 0) {
+            const account = await Account.findOne({ _id: req.body.accountId, userId: req.user.id });
+            if (!account) {
+                return res.status(404).json({ success: false, message: 'Account not found' });
+            }
+            
+            // Check if account has enough balance
+            if (account.balance < req.body.investedAmount) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: `Insufficient balance in ${account.accountName}. You need ${req.body.investedAmount} but only have ${account.balance}.`
+                });
+            }
+
+            // Deduct from account
+            account.balance -= req.body.investedAmount;
+            await account.save();
+
+            // Create a financial transaction record for history
+            await Transaction.create({
+                userId: req.user.id,
+                type: 'investment',
+                fromAccount: req.body.accountId,
+                amount: req.body.investedAmount,
+                category: `Investment: ${req.body.name}`,
+                note: `Initial purchase of ${req.body.name} (${req.body.symbol || 'N/A'})`,
+                transactionDate: req.body.purchaseDate || new Date()
+            });
+        }
 
         const investment = await Investment.create(req.body);
 
@@ -214,6 +247,47 @@ exports.addTransaction = async (req, res, next) => {
         };
 
         investment.transactions.push(transaction);
+
+        // ACCOUNT BALANCE UPDATE BASED ON TRANSACTION TYPE
+        if (investment.accountId && amount > 0) {
+            const account = await Account.findOne({ _id: investment.accountId, userId: req.user.id });
+            if (account) {
+                if (type === 'buy') {
+                    if (account.balance < amount) {
+                        return res.status(400).json({ 
+                            success: false, 
+                            message: `Insufficient balance in ${account.accountName} to buy more.` 
+                        });
+                    }
+                    account.balance -= amount;
+                    
+                    // Create transaction record
+                    await Transaction.create({
+                        userId: req.user.id,
+                        type: 'investment',
+                        fromAccount: investment.accountId,
+                        amount: amount,
+                        category: `Investment: ${investment.name}`,
+                        note: `Additional purchase: ${notes || ''}`,
+                        transactionDate: date || new Date()
+                    });
+                } else if (type === 'sell' || type === 'dividend') {
+                    account.balance += amount;
+                    
+                    // Create transaction record (inflow)
+                    await Transaction.create({
+                        userId: req.user.id,
+                        type: 'income',
+                        toAccount: investment.accountId,
+                        amount: amount,
+                        category: type === 'sell' ? 'Investment Sale' : 'Dividend',
+                        note: `${type === 'sell' ? 'Sold' : 'Dividend for'} ${investment.name}: ${notes || ''}`,
+                        transactionDate: date || new Date()
+                    });
+                }
+                await account.save();
+            }
+        }
 
         // Update investment based on transaction type
         switch (type) {
